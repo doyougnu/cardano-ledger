@@ -136,24 +136,20 @@ mkRwdAcnt network key@(KeyHashObj _) = RewardAcnt network key
 -- | Serialise an address to the external format.
 serialiseAddr :: Addr c -> ByteString
 serialiseAddr = BSL.toStrict . B.runPut . putAddr
-{-# INLINE serialiseAddr #-}
 
 -- | Deserialise an address from the external format. This will fail if the
 -- input data is not in the right format (or if there is trailing data).
 deserialiseAddr :: Crypto c => ByteString -> Maybe (Addr c)
 deserialiseAddr = decodeAddr
-{-# INLINE deserialiseAddr #-}
 
 -- | Serialise a reward account to the external format.
 serialiseRewardAcnt :: RewardAcnt c -> ByteString
 serialiseRewardAcnt = BSL.toStrict . B.runPut . putRewardAcnt
-{-# INLINE serialiseRewardAcnt #-}
 
 -- | Deserialise a reward account from the external format. This will fail if the
 -- input data is not in the right format (or if there is trailing data).
 deserialiseRewardAcnt :: Crypto c => ByteString -> Maybe (RewardAcnt c)
 deserialiseRewardAcnt = decodeRewardAcnt
-{-# INLINE deserialiseRewardAcnt #-}
 
 -- | An address for UTxO.
 --
@@ -284,7 +280,6 @@ putAddr (Addr network pc sr) =
           let header = setPayCredBit $ netId `setBit` isEnterpriseAddr `setBit` notBaseAddr
           B.putWord8 header
           putCredential pc
-{-# INLINE putAddr #-}
 
 putRewardAcnt :: RewardAcnt c -> Put
 putRewardAcnt (RewardAcnt network cred) = do
@@ -296,16 +291,13 @@ putRewardAcnt (RewardAcnt network cred) = do
       header = setPayCredBit (netId .|. rewardAcntPrefix)
   B.putWord8 header
   putCredential cred
-{-# INLINE putRewardAcnt #-}
 
 putHash :: Hash.Hash h a -> Put
 putHash = B.putByteString . Hash.hashToBytes
-{-# INLINE putHash #-}
 
 putCredential :: Credential kr c -> Put
 putCredential (ScriptHashObj (ScriptHash h)) = putHash h
 putCredential (KeyHashObj (KeyHash h)) = putHash h
-{-# INLINE putCredential #-}
 
 -- | The size of the extra attributes in a bootstrp (ie Byron) address. Used
 -- to help enforce that people do not post huge ones on the chain.
@@ -352,19 +344,15 @@ putVariableLengthWord64 = putWord7s . word64ToWord7s
 
 instance Crypto c => EncCBOR (Addr c) where
   encCBOR = encCBOR . B.runPut . putAddr
-  {-# INLINE encCBOR #-}
 
 instance Crypto c => DecCBOR (Addr c) where
   decCBOR = fromCborAddr
-  {-# INLINE decCBOR #-}
 
 instance Crypto c => EncCBOR (RewardAcnt c) where
   encCBOR = encCBOR . B.runPut . putRewardAcnt
-  {-# INLINE encCBOR #-}
 
 instance Crypto c => DecCBOR (RewardAcnt c) where
   decCBOR = fromCborRewardAcnt
-  {-# INLINE decCBOR #-}
 
 newtype BootstrapAddress c = BootstrapAddress
   { unBootstrapAddress :: Byron.Address
@@ -413,11 +401,9 @@ instance Crypto c => Show (CompactAddr c) where
 -- | Unwrap the compact address and get to the address' binary representation.
 unCompactAddr :: CompactAddr c -> ShortByteString
 unCompactAddr (UnsafeCompactAddr sbs) = sbs
-{-# INLINE unCompactAddr #-}
 
 compactAddr :: Addr c -> CompactAddr c
 compactAddr = UnsafeCompactAddr . SBS.toShort . serialiseAddr
-{-# INLINE compactAddr #-}
 
 decompactAddr :: forall c. (HasCallStack, Crypto c) => CompactAddr c -> Addr c
 decompactAddr (UnsafeCompactAddr sbs) =
@@ -428,7 +414,6 @@ decompactAddr (UnsafeCompactAddr sbs) =
         "Impossible: Malformed CompactAddr was allowed into the system. "
           ++ " Decoder error: "
           ++ err
-{-# INLINE decompactAddr #-}
 
 ------------------------------------------------------------------------------------------
 -- Address Serializer --------------------------------------------------------------------
@@ -437,13 +422,11 @@ decompactAddr (UnsafeCompactAddr sbs) =
 -- | Decoder for an `Addr`. Works in all eras
 fromCborAddr :: forall c s. Crypto c => Decoder s (Addr c)
 fromCborAddr = fst <$> fromCborBothAddr
-{-# INLINE fromCborAddr #-}
 
 -- | Returns the actual bytes that represent an addres, while ensuring that they can
 -- be decoded in any era as an `Addr` when need be.
 fromCborCompactAddr :: forall c s. Crypto c => Decoder s (CompactAddr c)
 fromCborCompactAddr = snd <$> fromCborBothAddr
-{-# INLINE fromCborCompactAddr #-}
 
 -- | This is the decoder for an address that returns both the actual `Addr` and the bytes,
 -- that it was encoded as.
@@ -457,8 +440,6 @@ fromCborBothAddr = do
       flip evalStateT 0 $ do
         addr <- decodeAddrStateAllowLeftoverT False sbs
         pure (addr, UnsafeCompactAddr sbs)
-    {-# INLINE decodeAddrRigorous #-}
-{-# INLINE fromCborBothAddr #-}
 
 -- | Prior to Babbage era we did not check if a binary blob representing an address was
 -- fully consumed, so unfortunately we must preserve this behavior. However, we do not
@@ -473,7 +454,6 @@ fromCborBackwardsBothAddr = do
     bytesConsumed <- get
     let sbsCropped = SBS.toShort $ BS.take bytesConsumed $ SBS.fromShort sbs
     pure (addr, UnsafeCompactAddr sbsCropped)
-{-# INLINE fromCborBackwardsBothAddr #-}
 
 class AddressBuffer b where
   bufLength :: b -> Int
@@ -486,27 +466,19 @@ class AddressBuffer b where
 
 instance AddressBuffer ShortByteString where
   bufLength = SBS.length
-  {-# INLINE bufLength #-}
   bufUnsafeIndex = unsafeShortByteStringIndex
-  {-# INLINE bufUnsafeIndex #-}
   bufToByteString = SBS.fromShort
-  {-# INLINE bufToByteString #-}
   bufGetHash = Hash.hashFromOffsetBytesShort
-  {-# INLINE bufGetHash #-}
 
 instance AddressBuffer BS.ByteString where
   bufLength = BS.length
-  {-# INLINE bufLength #-}
   bufUnsafeIndex = BS.unsafeIndex
-  {-# INLINE bufUnsafeIndex #-}
   bufToByteString = id
-  {-# INLINE bufToByteString #-}
   bufGetHash :: forall h a. Hash.HashAlgorithm h => BS.ByteString -> Int -> Maybe (Hash.Hash h a)
   bufGetHash bs offset = do
     let size = fromIntegral (Hash.sizeHash (Proxy :: Proxy h))
     guard (offset >= 0 && offset + size <= BS.length bs)
     Hash.hashFromBytes (BS.unsafeTake size (BS.unsafeDrop offset bs))
-  {-# INLINE bufGetHash #-}
 
 -- | Address header byte truth table:
 newtype Header = Header Word8
@@ -521,7 +493,6 @@ headerByron = 0b10000010 -- 0x80
 
 isByronAddress :: Header -> Bool
 isByronAddress = (== headerByron)
-{-# INLINE isByronAddress #-}
 
 headerNonShelleyBits :: Header
 headerNonShelleyBits = headerByron .|. 0b00001100
@@ -530,23 +501,18 @@ headerNetworkId :: Header -> Network
 headerNetworkId header
   | header `testBit` 0 = Mainnet
   | otherwise = Testnet
-{-# INLINE headerNetworkId #-}
 
 headerIsPaymentScript :: Header -> Bool
 headerIsPaymentScript = (`testBit` 4)
-{-# INLINE headerIsPaymentScript #-}
 
 headerIsEnterpriseAddr :: Header -> Bool
 headerIsEnterpriseAddr = (`testBit` 5)
-{-# INLINE headerIsEnterpriseAddr #-}
 
 headerIsStakingScript :: Header -> Bool
 headerIsStakingScript = (`testBit` 5)
-{-# INLINE headerIsStakingScript #-}
 
 headerIsBaseAddress :: Header -> Bool
 headerIsBaseAddress = not . (`testBit` 6)
-{-# INLINE headerIsBaseAddress #-}
 
 decodeAddrEither ::
   forall c.
@@ -554,7 +520,6 @@ decodeAddrEither ::
   BS.ByteString ->
   Either String (Addr c)
 decodeAddrEither sbs = runFail $ evalStateT (decodeAddrStateT sbs) 0
-{-# INLINE decodeAddrEither #-}
 
 decodeAddrShortEither ::
   forall c.
@@ -562,7 +527,6 @@ decodeAddrShortEither ::
   ShortByteString ->
   Either String (Addr c)
 decodeAddrShortEither sbs = runFail $ evalStateT (decodeAddrStateT sbs) 0
-{-# INLINE decodeAddrShortEither #-}
 
 decodeAddrShort ::
   forall c m.
@@ -570,7 +534,6 @@ decodeAddrShort ::
   ShortByteString ->
   m (Addr c)
 decodeAddrShort sbs = evalStateT (decodeAddrStateT sbs) 0
-{-# INLINE decodeAddrShort #-}
 
 decodeAddr ::
   forall c m.
@@ -578,7 +541,6 @@ decodeAddr ::
   BS.ByteString ->
   m (Addr c)
 decodeAddr sbs = evalStateT (decodeAddrStateT sbs) 0
-{-# INLINE decodeAddr #-}
 
 -- | While decoding an Addr the header (the first byte in the buffer) is
 -- expected to be in a certain format. Here are the meaning of all the bits:
@@ -618,7 +580,6 @@ decodeAddrStateT ::
   b ->
   StateT Int m (Addr c)
 decodeAddrStateT = decodeAddrStateAllowLeftoverT False
-{-# INLINE decodeAddrStateT #-}
 
 -- | Just like `decodeAddrStateT`, but does not check whether the input was consumed in full.
 decodeAddrStateAllowLeftoverT ::
@@ -648,7 +609,6 @@ decodeAddrStateAllowLeftoverT isLenient buf = do
   unless isLenient $
     ensureBufIsConsumed "Addr" buf
   pure addr
-{-# INLINE decodeAddrStateAllowLeftoverT #-}
 
 -- | Checks that the current offset is exactly at the end of the buffer.
 ensureBufIsConsumed ::
@@ -665,7 +625,6 @@ ensureBufIsConsumed name buf = do
   unless (lastOffset == len) $
     failDecoding name $
       "Left over bytes: " ++ show (len - lastOffset)
-{-# INLINE ensureBufIsConsumed #-}
 
 -- | This decoder assumes the whole `ShortByteString` is occupied by the `BootstrapAddress`
 decodeBootstrapAddress ::
@@ -677,7 +636,6 @@ decodeBootstrapAddress buf =
   case decodeFull' byronProtVer $ bufToByteString buf of
     Left e -> fail $ show e
     Right addr -> BootstrapAddress addr <$ modify' (+ bufLength buf)
-{-# INLINE decodeBootstrapAddress #-}
 
 decodePaymentCredential ::
   (Crypto c, MonadFail m, AddressBuffer b) =>
@@ -687,7 +645,6 @@ decodePaymentCredential ::
 decodePaymentCredential header buf
   | headerIsPaymentScript header = ScriptHashObj <$> decodeScriptHash buf
   | otherwise = KeyHashObj <$> decodeKeyHash buf
-{-# INLINE decodePaymentCredential #-}
 
 decodeStakeReference ::
   (Crypto c, MonadFail m, AddressBuffer b) =>
@@ -704,21 +661,18 @@ decodeStakeReference isLenientPtrDecoder header buf
       if headerIsEnterpriseAddr header
         then pure StakeRefNull
         else StakeRefPtr <$> if isLenientPtrDecoder then decodePtrLenient buf else decodePtr buf
-{-# INLINE decodeStakeReference #-}
 
 decodeKeyHash ::
   (Crypto c, MonadFail m, AddressBuffer b) =>
   b ->
   StateT Int m (KeyHash kr c)
 decodeKeyHash buf = KeyHash <$> decodeHash buf
-{-# INLINE decodeKeyHash #-}
 
 decodeScriptHash ::
   (Crypto c, MonadFail m, AddressBuffer b) =>
   b ->
   StateT Int m (ScriptHash c)
 decodeScriptHash buf = ScriptHash <$> decodeHash buf
-{-# INLINE decodeScriptHash #-}
 
 decodeHash ::
   forall a h m b.
@@ -740,7 +694,6 @@ decodeHash buf = do
   where
     hashLen :: Int
     hashLen = fromIntegral (Hash.sizeHash (Proxy :: Proxy h))
-{-# INLINE decodeHash #-}
 
 decodePtr ::
   (MonadFail m, AddressBuffer b) =>
@@ -751,7 +704,6 @@ decodePtr buf =
     <$> (SlotNo . (fromIntegral :: Word32 -> Word64) <$> decodeVariableLengthWord32 "SlotNo" buf)
     <*> (TxIx . (fromIntegral :: Word16 -> Word64) <$> decodeVariableLengthWord16 "TxIx" buf)
     <*> (CertIx . (fromIntegral :: Word16 -> Word64) <$> decodeVariableLengthWord16 "CertIx" buf)
-{-# INLINE decodePtr #-}
 
 decodePtrLenient ::
   (MonadFail m, AddressBuffer b) =>
@@ -762,7 +714,6 @@ decodePtrLenient buf =
     <$> (SlotNo <$> decodeVariableLengthWord64 "SlotNo" buf)
     <*> (TxIx <$> decodeVariableLengthWord64 "TxIx" buf)
     <*> (CertIx <$> decodeVariableLengthWord64 "CertIx" buf)
-{-# INLINE decodePtrLenient #-}
 
 guardLength ::
   (MonadFail m, AddressBuffer b) =>
@@ -775,7 +726,6 @@ guardLength name expectedLength buf = do
   offset <- get
   when (offset > bufLength buf - expectedLength) $
     failDecoding name "Not enough bytes for decoding"
-{-# INLINE guardLength #-}
 
 -- | Decode a variable length integral value that is encoded with 7 bits of data
 -- and the most significant bit (MSB), the 8th bit is set whenever there are
@@ -799,11 +749,9 @@ decode7BitVarLength name buf cont !acc = do
   if b8 `testBit` 7
     then cont (acc `shiftL` 7 .|. fromIntegral (b8 `clearBit` 7))
     else pure (acc `shiftL` 7 .|. fromIntegral b8)
-{-# INLINE decode7BitVarLength #-}
 
 failDecoding :: MonadFail m => String -> String -> m a
 failDecoding name msg = fail $ "Decoding " ++ name ++ ": " ++ msg
-{-# NOINLINE failDecoding #-}
 
 decodeVariableLengthWord16 ::
   forall m b.
@@ -823,7 +771,6 @@ decodeVariableLengthWord16 name buf = do
           failDecoding name "More than 16bits was supplied"
         pure res
   d7 (d7 d7last) 0
-{-# INLINE decodeVariableLengthWord16 #-}
 
 decodeVariableLengthWord32 ::
   forall m b.
@@ -834,7 +781,6 @@ decodeVariableLengthWord32 ::
 decodeVariableLengthWord32 name buf = do
   off0 <- get
   let d7 = decode7BitVarLength name buf
-      {-# INLINE d7 #-}
       d7last :: Word32 -> StateT Int m Word32
       d7last acc = do
         res <- decode7BitVarLength name buf (\_ -> failDecoding name "too many bytes.") acc
@@ -843,9 +789,7 @@ decodeVariableLengthWord32 name buf = do
         unless (bufUnsafeIndex buf off0 .&. 0b11110000 == 0b10000000) $
           failDecoding name "More than 32bits was supplied"
         pure res
-      {-# INLINE d7last #-}
   d7 (d7 (d7 (d7 d7last))) 0
-{-# INLINE decodeVariableLengthWord32 #-}
 
 -- | This decoder is here only with the purpose of preserving old buggy behavior. Should
 -- not be used for anything else.
@@ -856,7 +800,6 @@ decodeVariableLengthWord64 ::
   b ->
   StateT Int m Word64
 decodeVariableLengthWord64 name buf = fix (decode7BitVarLength name buf) 0
-{-# INLINE decodeVariableLengthWord64 #-}
 
 ------------------------------------------------------------------------------------------
 -- Reward Account Deserializer -----------------------------------------------------------
@@ -868,21 +811,17 @@ decodeRewardAcnt ::
   b ->
   m (RewardAcnt c)
 decodeRewardAcnt buf = evalStateT (decodeRewardAccountT buf) 0
-{-# INLINE decodeRewardAcnt #-}
 
 fromCborRewardAcnt :: forall c s. Crypto c => Decoder s (RewardAcnt c)
 fromCborRewardAcnt = do
   sbs :: ShortByteString <- decCBOR
   decodeRewardAcnt @c sbs
-{-# INLINE fromCborRewardAcnt #-}
 
 headerIsRewardAccount :: Header -> Bool
 headerIsRewardAccount header = header .&. 0b11101110 == 0b11100000
-{-# INLINE headerIsRewardAccount #-}
 
 headerRewardAccountIsScript :: Header -> Bool
 headerRewardAccountIsScript = (`testBit` 4)
-{-# INLINE headerRewardAccountIsScript #-}
 
 -- | Reward Account Header.
 --
@@ -917,15 +856,12 @@ decodeRewardAccountT buf = do
       else KeyHashObj <$> decodeKeyHash buf
   ensureBufIsConsumed "RewardsAcnt" buf
   pure $! RewardAcnt (headerNetworkId header) account
-{-# INLINE decodeRewardAccountT #-}
 
 instance Crypto c => EncCBOR (CompactAddr c) where
   encCBOR (UnsafeCompactAddr bytes) = encCBOR bytes
-  {-# INLINE encCBOR #-}
 
 instance Crypto c => DecCBOR (CompactAddr c) where
   decCBOR = fromCborCompactAddr
-  {-# INLINE decCBOR #-}
 
 -- | Efficiently check whether compacted adddress is an address with a credential
 -- that is a payment script.
