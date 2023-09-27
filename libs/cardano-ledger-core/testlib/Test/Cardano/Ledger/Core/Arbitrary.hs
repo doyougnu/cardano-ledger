@@ -108,6 +108,8 @@ import Cardano.Ledger.TxIn (TxId (..), TxIn (..))
 import Cardano.Ledger.UMap (
   RDPair (..),
   UMElem (UMElem),
+  UMElemRD (UMElemRD),
+  UMElemOther (UMElemOther),
   UMap (UMap, umElems, umPtrs),
   UView (RewDepUView),
   unUnify,
@@ -508,6 +510,14 @@ deriving instance (Era era, Arbitrary (PParamsHKD StrictMaybe era)) => Arbitrary
 
 instance Arbitrary RDPair where
   arbitrary = RDPair <$> arbitrary <*> arbitrary
+  shrink = genericShrink
+
+instance Crypto c => Arbitrary (UMElemRD c) where
+  arbitrary = UMElemRD <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+  shrink = genericShrink
+
+instance Crypto c => Arbitrary (UMElemOther c) where
+  arbitrary = UMElemOther <$> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
   shrink = genericShrink
 
 instance Crypto c => Arbitrary (UMElem c) where
