@@ -25,7 +25,7 @@
 module Cardano.Ledger.UMap (
   -- * Constructing a `UMap`
   RDPair (..),
-  UMElem (UMElem),
+  UMElem (UMElem), UMElemRD (UMElemRD), UMElemOther (UMElemOther),
   umElemRDPair,
   umElemRDActive,
   umElemPtrs,
@@ -183,7 +183,7 @@ instance DecCBOR RDPair where
 -- TEEEF means only the voting delegatee id is present, and
 --
 -- The pattern 'UMElem' will correctly use the optimal constructor.
-data UMElem c
+data UMElemRD c
   = TEEEE
   | TEEEF !(DRep c)
   | TEEFE !(KeyHash 'StakePool c)
@@ -192,7 +192,10 @@ data UMElem c
   | TEFEF !(Set Ptr) !(DRep c)
   | TEFFE !(Set Ptr) !(KeyHash 'StakePool c)
   | TEFFF !(Set Ptr) !(KeyHash 'StakePool c) !(DRep c)
-  | TFEEE {-# UNPACK #-} !RDPair
+  deriving (Eq, Ord, Generic, NoThunks, NFData)
+
+data UMElemOther c
+  = TFEEE {-# UNPACK #-} !RDPair
   | TFEEF {-# UNPACK #-} !RDPair !(DRep c)
   | TFEFE {-# UNPACK #-} !RDPair !(KeyHash 'StakePool c)
   | TFEFF {-# UNPACK #-} !RDPair !(KeyHash 'StakePool c) !(DRep c)
@@ -202,7 +205,14 @@ data UMElem c
   | TFFFF {-# UNPACK #-} !RDPair !(Set Ptr) !(KeyHash 'StakePool c) !(DRep c)
   deriving (Eq, Ord, Generic, NoThunks, NFData)
 
-instance ToExpr (UMElem c)
+data UMElem c
+  = F !(UMElemRD c)
+  | O !(UMElemOther c)
+  deriving (Eq, Ord, Generic, NoThunks, NFData)
+
+instance ToExpr (UMElemRD    c)
+instance ToExpr (UMElemOther c)
+instance ToExpr (UMElem      c)
 
 instance Crypto c => ToJSON (UMElem c) where
   toJSON = object . toUMElemair
@@ -237,22 +247,25 @@ umElemAsTuple ::
   UMElem c ->
   (StrictMaybe RDPair, Set Ptr, StrictMaybe (KeyHash 'StakePool c), StrictMaybe (DRep c))
 umElemAsTuple = \case
-  TEEEE -> (SNothing, Set.empty, SNothing, SNothing)
-  TEEEF v -> (SNothing, Set.empty, SNothing, SJust v)
-  TEEFE s -> (SNothing, Set.empty, SJust s, SNothing)
-  TEEFF s v -> (SNothing, Set.empty, SJust s, SJust v)
-  TEFEE p -> (SNothing, p, SNothing, SNothing)
-  TEFEF p v -> (SNothing, p, SNothing, SJust v)
-  TEFFE p s -> (SNothing, p, SJust s, SNothing)
-  TEFFF p s v -> (SNothing, p, SJust s, SJust v)
-  TFEEE r -> (SJust r, Set.empty, SNothing, SNothing)
-  TFEEF r v -> (SJust r, Set.empty, SNothing, SJust v)
-  TFEFE r s -> (SJust r, Set.empty, SJust s, SNothing)
-  TFEFF r s v -> (SJust r, Set.empty, SJust s, SJust v)
-  TFFEE r p -> (SJust r, p, SNothing, SNothing)
-  TFFEF r p v -> (SJust r, p, SNothing, SJust v)
-  TFFFE r p s -> (SJust r, p, SJust s, SNothing)
-  TFFFF r p s v -> (SJust r, p, SJust s, SJust v)
+  F m -> case m of
+    TEEEE       -> (SNothing, Set.empty, SNothing, SNothing)
+    TEEEF v     -> (SNothing, Set.empty, SNothing, SJust v)
+    TEEFE s     -> (SNothing, Set.empty, SJust s, SNothing)
+    TEEFF s v   -> (SNothing, Set.empty, SJust s, SJust v)
+    TEFEE p     -> (SNothing, p, SNothing, SNothing)
+    TEFEF p v   -> (SNothing, p, SNothing, SJust v)
+    TEFFE p s   -> (SNothing, p, SJust s, SNothing)
+    TEFFF p s v -> (SNothing, p, SJust s, SJust v)
+  O m -> case m of
+    TFEEE r       -> (SJust r, Set.empty, SNothing, SNothing)
+    TFEEF r v     -> (SJust r, Set.empty, SNothing, SJust v)
+    TFEFE r s     -> (SJust r, Set.empty, SJust s, SNothing)
+    TFEFF r s v   -> (SJust r, Set.empty, SJust s, SJust v)
+    TFFEE r p     -> (SJust r, p, SNothing, SNothing)
+    TFFEF r p v   -> (SJust r, p, SNothing, SJust v)
+    TFFFE r p s   -> (SJust r, p, SJust s, SNothing)
+    TFFFF r p s v -> (SJust r, p, SJust s, SJust v)
+{-# INLINE umElemAsTuple #-}
 
 -- | Extract a delegated reward-deposit pair if it is present.
 -- We can tell that the pair is present and active when Txxxx has
@@ -261,11 +274,14 @@ umElemAsTuple = \case
 -- This is equivalent to the pattern (ElemP (SJust r) _ (SJust _) _) -> Just r
 umElemRDActive :: UMElem c -> Maybe RDPair
 umElemRDActive = \case
-  TFEFE rdA _ -> Just rdA
-  TFEFF rdA _ _ -> Just rdA
-  TFFFE rdA _ _ -> Just rdA
-  TFFFF rdA _ _ _ -> Just rdA
-  _ -> Nothing
+  F _ -> Nothing
+  O m -> case m of
+    TFEFE rdA _     -> Just rdA
+    TFEFF rdA _ _   -> Just rdA
+    TFFFE rdA _ _   -> Just rdA
+    TFFFF rdA _ _ _ -> Just rdA
+    _               -> Nothing
+{-# INLINE umElemRDActive #-}
 
 -- | Extract the reward-deposit pair if it is present.
 -- We can tell that the reward is present when Txxxx has an F in the first position
@@ -273,15 +289,19 @@ umElemRDActive = \case
 -- This is equivalent to the pattern (ElemP (SJust r) _ _ _) -> Just r
 umElemRDPair :: UMElem c -> Maybe RDPair
 umElemRDPair = \case
-  TFEEE r -> Just r
-  TFEEF r _ -> Just r
-  TFEFE r _ -> Just r
-  TFEFF r _ _ -> Just r
-  TFFEE r _ -> Just r
-  TFFEF r _ _ -> Just r
-  TFFFE r _ _ -> Just r
-  TFFFF r _ _ _ -> Just r
-  _ -> Nothing
+  F _ -> Nothing
+  O m -> goO m
+  where
+    goO = \case
+      TFEEE r       -> Just r
+      TFEEF r _     -> Just r
+      TFEFE r _     -> Just r
+      TFEFF r _ _   -> Just r
+      TFFEE r _     -> Just r
+      TFFEF r _ _   -> Just r
+      TFFFE r _ _   -> Just r
+      TFFFF r _ _ _ -> Just r
+{-# INLINE umElemRDPair #-}
 
 -- | Extract the set of pointers if it is non-empty.
 -- We can tell that the reward is present when Txxxx has an F in the second position
@@ -289,15 +309,22 @@ umElemRDPair = \case
 -- This is equivalent to the pattern (ElemP _ ptrs _ _) | not (Set.null ptrs) -> Just ptrs
 umElemPtrs :: UMElem c -> Maybe (Set.Set Ptr)
 umElemPtrs = \case
-  TEFEE p | not (Set.null p) -> Just p
-  TEFEF p _ | not (Set.null p) -> Just p
-  TEFFE p _ | not (Set.null p) -> Just p
-  TEFFF p _ _ | not (Set.null p) -> Just p
-  TFFEE _ p | not (Set.null p) -> Just p
-  TFFEF _ p _ | not (Set.null p) -> Just p
-  TFFFE _ p _ | not (Set.null p) -> Just p
-  TFFFF _ p _ _ | not (Set.null p) -> Just p
-  _ -> Nothing
+  F m -> goF m
+  O m -> goO m
+  where
+    goO = \case
+      TFFEE _ p     | not (Set.null p) -> Just p
+      TFFEF _ p _   | not (Set.null p) -> Just p
+      TFFFE _ p _   | not (Set.null p) -> Just p
+      TFFFF _ p _ _ | not (Set.null p) -> Just p
+      _ -> Nothing
+    goF = \case
+      TEFEE p       | not (Set.null p) -> Just p
+      TEFEF p _     | not (Set.null p) -> Just p
+      TEFFE p _     | not (Set.null p) -> Just p
+      TEFFF p _ _   | not (Set.null p) -> Just p
+      _ -> Nothing
+{-# INLINE umElemPtrs #-}
 
 -- | Extract the stake delegatee pool id, if present.
 -- We can tell that the pool id is present when Txxxx has an F in the third position
@@ -305,15 +332,22 @@ umElemPtrs = \case
 -- This is equivalent to the pattern (ElemP _ _ (SJust s) _) -> Just s
 umElemSPool :: UMElem c -> Maybe (KeyHash 'StakePool c)
 umElemSPool = \case
-  TEEFE s -> Just s
-  TEEFF s _ -> Just s
-  TEFFE _ s -> Just s
-  TEFFF _ s _ -> Just s
-  TFEFE _ s -> Just s
-  TFEFF _ s _ -> Just s
-  TFFFE _ _ s -> Just s
-  TFFFF _ _ s _ -> Just s
-  _ -> Nothing
+  F m -> goF m
+  O m -> goO m
+  where
+    goO = \case
+      TFEFE _ s     -> Just s
+      TFEFF _ s _   -> Just s
+      TFFFE _ _ s   -> Just s
+      TFFFF _ _ s _ -> Just s
+      _             -> Nothing
+    goF = \case
+      TEEFE s       -> Just s
+      TEEFF s _     -> Just s
+      TEFFE _ s     -> Just s
+      TEFFF _ s _   -> Just s
+      _             -> Nothing
+{-# INLINE umElemSPool #-}
 
 -- | Extract the voting delegatee id, if present.
 -- We can tell that the delegatee is present when Txxxx has an F in the fourth position
@@ -321,15 +355,21 @@ umElemSPool = \case
 -- This is equivalent to the pattern (ElemP _ _ _ (SJust v)) -> Just v
 umElemDRep :: UMElem c -> Maybe (DRep c)
 umElemDRep = \case
-  TEEEF d -> Just d
-  TEEFF _ d -> Just d
-  TEFEF _ d -> Just d
-  TEFFF _ _ d -> Just d
-  TFEEF _ d -> Just d
-  TFEFF _ _ d -> Just d
-  TFFEF _ _ d -> Just d
-  TFFFF _ _ _ d -> Just d
-  _ -> Nothing
+  F m -> goF m
+  O m -> goO m
+  where goO = \case
+          TFEEF _ d     -> Just d
+          TFEFF _ _ d   -> Just d
+          TFFEF _ _ d   -> Just d
+          TFFFF _ _ _ d -> Just d
+          _             -> Nothing
+        goF = \case
+                  TEEEF d       -> Just d
+                  TEEFF _ d     -> Just d
+                  TEFEF _ d     -> Just d
+                  TEFFF _ _ d   -> Just d
+                  _             -> Nothing
+{-# INLINE umElemDRep #-}
 
 -- | A `UMElem` can be extracted and injected into the `TEEEE` ... `TFFFF` constructors.
 pattern UMElem ::
@@ -341,24 +381,65 @@ pattern UMElem ::
 pattern UMElem i j k l <- (umElemAsTuple -> (i, j, k, l))
   where
     UMElem i j k l = case (i, j, k, l) of
-      (SNothing, SI.Tip, SNothing, SNothing) -> TEEEE
-      (SNothing, SI.Tip, SNothing, SJust d) -> TEEEF d
-      (SNothing, SI.Tip, SJust s, SNothing) -> TEEFE s
-      (SNothing, SI.Tip, SJust s, SJust d) -> TEEFF s d
-      (SNothing, p, SNothing, SNothing) -> TEFEE p
-      (SNothing, p, SNothing, SJust d) -> TEFEF p d
-      (SNothing, p, SJust s, SNothing) -> TEFFE p s
-      (SNothing, p, SJust s, SJust d) -> TEFFF p s d
-      (SJust r, SI.Tip, SNothing, SNothing) -> TFEEE r
-      (SJust r, SI.Tip, SNothing, SJust d) -> TFEEF r d
-      (SJust r, SI.Tip, SJust s, SNothing) -> TFEFE r s
-      (SJust r, SI.Tip, SJust s, SJust d) -> TFEFF r s d
-      (SJust r, p, SNothing, SNothing) -> TFFEE r p
-      (SJust r, p, SNothing, SJust d) -> TFFEF r p d
-      (SJust r, p, SJust s, SNothing) -> TFFFE r p s
-      (SJust r, p, SJust s, SJust d) -> TFFFF r p s d
+      (SNothing, SI.Tip, SNothing, SNothing) -> F $ TEEEE
+      (SNothing, SI.Tip, SNothing, SJust d)  -> F $ TEEEF d
+      (SNothing, SI.Tip, SJust s, SNothing)  -> F $ TEEFE s
+      (SNothing, SI.Tip, SJust s, SJust d)   -> F $ TEEFF s d
+      (SNothing, p, SNothing, SNothing)      -> F $ TEFEE p
+      (SNothing, p, SNothing, SJust d)       -> F $ TEFEF p d
+      (SNothing, p, SJust s, SNothing)       -> F $ TEFFE p s
+      (SNothing, p, SJust s, SJust d)        -> F $ TEFFF p s d
+      (SJust r, SI.Tip, SNothing, SNothing)  -> O $ TFEEE r
+      (SJust r, SI.Tip, SNothing, SJust d)   -> O $ TFEEF r d
+      (SJust r, SI.Tip, SJust s, SNothing)   -> O $ TFEFE r s
+      (SJust r, SI.Tip, SJust s, SJust d)    -> O $ TFEFF r s d
+      (SJust r, p, SNothing, SNothing)       -> O $ TFFEE r p
+      (SJust r, p, SNothing, SJust d)        -> O $ TFFEF r p d
+      (SJust r, p, SJust s, SNothing)        -> O $ TFFFE r p s
+      (SJust r, p, SJust s, SJust d)         -> O $ TFFFF r p s d
 
 {-# COMPLETE UMElem #-}
+
+pattern UMElemRD ::
+  StrictMaybe RDPair ->
+  Set Ptr ->
+  StrictMaybe (KeyHash 'StakePool c) ->
+  StrictMaybe (DRep c) ->
+  UMElemRD c
+pattern UMElemRD i j k l <- (umElemAsTuple . F -> (i, j, k, l))
+  where
+    UMElemRD i j k l = case (i, j, k, l) of
+      (SNothing, SI.Tip, SNothing, SNothing) -> TEEEE
+      (SNothing, SI.Tip, SNothing, SJust d)  -> TEEEF d
+      (SNothing, SI.Tip, SJust s, SNothing)  -> TEEFE s
+      (SNothing, SI.Tip, SJust s, SJust d)   -> TEEFF s d
+      (SNothing, p, SNothing, SNothing)      -> TEFEE p
+      (SNothing, p, SNothing, SJust d)       -> TEFEF p d
+      (SNothing, p, SJust s, SNothing)       -> TEFFE p s
+      (SNothing, p, SJust s, SJust d)        -> TEFFF p s d
+      _                                      -> error "UMElemOther"
+
+{-# COMPLETE UMElemRD #-}
+
+-- | A `UMElem` can be extracted and injected into the `TEEEE` ... `TFFFF` constructors.
+pattern UMElemOther ::
+  StrictMaybe RDPair ->
+  Set Ptr ->
+  StrictMaybe (KeyHash 'StakePool c) ->
+  StrictMaybe (DRep c) ->
+  UMElemOther c
+pattern UMElemOther i j k l <- (umElemAsTuple . O -> (i, j, k, l))
+  where
+    UMElemOther i j k l = case (i, j, k, l) of
+      (SJust r, SI.Tip, SNothing, SNothing)  -> TFEEE r
+      (SJust r, SI.Tip, SNothing, SJust d)   -> TFEEF r d
+      (SJust r, SI.Tip, SJust s, SNothing)   -> TFEFE r s
+      (SJust r, SI.Tip, SJust s, SJust d)    -> TFEFF r s d
+      (SJust r, p, SNothing, SNothing)       -> TFFEE r p
+      (SJust r, p, SNothing, SJust d)        -> TFFEF r p d
+      (SJust r, p, SJust s, SNothing)        -> TFFFE r p s
+      (SJust r, p, SJust s, SJust d)         -> TFFFF r p s d
+      _                                      -> error "UMElemOther"
 
 instance Show (UMElem c) where
   show (UMElem a b c d) =
