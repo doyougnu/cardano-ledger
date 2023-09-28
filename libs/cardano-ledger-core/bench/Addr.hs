@@ -14,7 +14,7 @@ import Criterion (Benchmark, bench, env, nf)
 import Criterion.Main (defaultMain)
 
 import Data.ByteString.Char8 (ByteString)
-import Data.Either (lefts)
+-- import Data.Either (lefts)
 
 import Test.Cardano.Ledger.Core.Arbitrary ()
 import Test.QuickCheck (arbitrary, generate)
@@ -37,11 +37,11 @@ generateAddrAsBytestring count =
     genAddr :: IO (Addr StandardCrypto)
     genAddr = generate arbitrary
 
-tryDecodeAddr :: [ByteString] -> ()
-tryDecodeAddr xs =
-  case lefts $ map decode xs of
-    [] -> ()
-    ys -> error $ "tryDecodeAddr: " ++ show ys
-  where
-    decode :: ByteString -> Either String (Addr StandardCrypto)
-    decode = decodeAddrEither
+tryDecodeAddr :: [ByteString] ->  [Addr StandardCrypto]
+tryDecodeAddr xs = map decodeAddrEither xs
+  -- case map decode xs of
+  --   [] -> ()
+  --   _ys -> () -- error $ "tryDecodeAddr: " ++ show ys
+  -- where
+  --   decode :: ByteString -> (Addr StandardCrypto)
+  --   decode = decodeAddrEither

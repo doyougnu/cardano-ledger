@@ -57,6 +57,7 @@ module Cardano.Ledger.Address (
 )
 where
 
+import Prelude hiding (fail)
 import qualified Cardano.Chain.Common as Byron
 import qualified Cardano.Crypto.Hash.Class as Hash
 import qualified Cardano.Crypto.Hashing as Byron
@@ -92,8 +93,7 @@ import Cardano.Ledger.TreeDiff (ToExpr (toExpr), defaultExprViaShow)
 import Cardano.Prelude (unsafeShortByteStringIndex)
 import Control.DeepSeq (NFData)
 import Control.Monad (guard, unless, when)
-import Control.Monad.Trans.Fail (runFail)
-import Control.Monad.Trans.State (StateT, evalStateT, get, modify', state)
+import Control.Monad.State (State, evalState, get, modify', state)
 import Data.Aeson (FromJSON (..), FromJSONKey (..), ToJSON (..), ToJSONKey (..), (.:), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Encoding as Aeson
@@ -119,7 +119,6 @@ import qualified Data.Text.Encoding as Text
 import Data.Word (Word16, Word32, Word64, Word8)
 import GHC.Generics (Generic)
 import GHC.Show (intToDigit)
-import GHC.Stack (HasCallStack)
 import NoThunks.Class (NoThunks (..))
 import Numeric (showIntAtBase)
 import Quiet (Quiet (Quiet))
@@ -140,7 +139,7 @@ serialiseAddr = BSL.toStrict . B.runPut . putAddr
 
 -- | Deserialise an address from the external format. This will fail if the
 -- input data is not in the right format (or if there is trailing data).
-deserialiseAddr :: Crypto c => ByteString -> Maybe (Addr c)
+deserialiseAddr :: Crypto c => ByteString -> Addr c
 deserialiseAddr = decodeAddr
 {-# INLINE deserialiseAddr #-}
 
@@ -151,7 +150,7 @@ serialiseRewardAcnt = BSL.toStrict . B.runPut . putRewardAcnt
 
 -- | Deserialise a reward account from the external format. This will fail if the
 -- input data is not in the right format (or if there is trailing data).
-deserialiseRewardAcnt :: Crypto c => ByteString -> Maybe (RewardAcnt c)
+deserialiseRewardAcnt :: Crypto c => ByteString -> RewardAcnt c
 deserialiseRewardAcnt = decodeRewardAcnt
 {-# INLINE deserialiseRewardAcnt #-}
 
@@ -238,10 +237,10 @@ addrToText = Text.decodeLatin1 . B16.encode . serialiseAddr
 parseAddr :: Crypto c => Text -> Aeson.Parser (Addr c)
 parseAddr t = do
   bytes <- either badHex return (B16.decode (Text.encodeUtf8 t))
-  maybe badFormat return (deserialiseAddr bytes)
+  pure $ deserialiseAddr bytes
   where
     badHex h = fail $ "Addresses are expected in hex encoding for now: " ++ show h
-    badFormat = fail "Address is not in the right format"
+    -- badFormat = fail "Address is not in the right format"
 
 byron :: Int
 byron = 7
@@ -419,15 +418,15 @@ compactAddr :: Addr c -> CompactAddr c
 compactAddr = UnsafeCompactAddr . SBS.toShort . serialiseAddr
 {-# INLINE compactAddr #-}
 
-decompactAddr :: forall c. (HasCallStack, Crypto c) => CompactAddr c -> Addr c
-decompactAddr (UnsafeCompactAddr sbs) =
-  case runFail $ evalStateT (decodeAddrStateAllowLeftoverT True sbs) 0 of
-    Right addr -> addr
-    Left err ->
-      error $
-        "Impossible: Malformed CompactAddr was allowed into the system. "
-          ++ " Decoder error: "
-          ++ err
+decompactAddr :: forall c. (Crypto c) => CompactAddr c -> Addr c
+decompactAddr (UnsafeCompactAddr sbs) = evalState (decodeAddrStateAllowLeftoverT True sbs) 0
+  -- case evalState (decodeAddrStateAllowLeftoverT True sbs) 0 of
+  --   Right addr -> addr
+  --   Left err ->
+  --     error $
+  --       "Impossible: Malformed CompactAddr was allowed into the system. "
+  --         ++ " Decoder error: "
+  --         ++ err
 {-# INLINE decompactAddr #-}
 
 ------------------------------------------------------------------------------------------
@@ -454,7 +453,7 @@ fromCborBothAddr = do
     -- Starting with Babbage we no longer allow addresses with garbage in them.
     decodeAddrRigorous = do
       sbs <- decCBOR
-      flip evalStateT 0 $ do
+      pure $ flip evalState 0 $ do
         addr <- decodeAddrStateAllowLeftoverT False sbs
         pure (addr, UnsafeCompactAddr sbs)
     {-# INLINE decodeAddrRigorous #-}
@@ -468,7 +467,7 @@ fromCborBothAddr = do
 fromCborBackwardsBothAddr :: forall c s. Crypto c => Decoder s (Addr c, CompactAddr c)
 fromCborBackwardsBothAddr = do
   sbs <- decCBOR
-  flip evalStateT 0 $ do
+  pure $ flip evalState 0 $ do
     addr <- decodeAddrStateAllowLeftoverT True sbs
     bytesConsumed <- get
     let sbsCropped = SBS.toShort $ BS.take bytesConsumed $ SBS.fromShort sbs
@@ -552,32 +551,29 @@ decodeAddrEither ::
   forall c.
   Crypto c =>
   BS.ByteString ->
-  Either String (Addr c)
-decodeAddrEither sbs = runFail $ evalStateT (decodeAddrStateT sbs) 0
+  Addr c
+decodeAddrEither sbs = evalState (decodeAddrStateT sbs) 0
 {-# INLINE decodeAddrEither #-}
 
 decodeAddrShortEither ::
   forall c.
-  Crypto c =>
-  ShortByteString ->
-  Either String (Addr c)
-decodeAddrShortEither sbs = runFail $ evalStateT (decodeAddrStateT sbs) 0
+  Crypto c => ShortByteString -> Addr c
+decodeAddrShortEither sbs = evalState (decodeAddrStateT sbs) 0
 {-# INLINE decodeAddrShortEither #-}
 
 decodeAddrShort ::
-  forall c m.
-  (Crypto c, MonadFail m) =>
+  forall c.
+  (Crypto c) =>
   ShortByteString ->
-  m (Addr c)
-decodeAddrShort sbs = evalStateT (decodeAddrStateT sbs) 0
+  (Addr c)
+decodeAddrShort sbs = evalState (decodeAddrStateT sbs) 0
 {-# INLINE decodeAddrShort #-}
 
 decodeAddr ::
-  forall c m.
-  (Crypto c, MonadFail m) =>
-  BS.ByteString ->
-  m (Addr c)
-decodeAddr sbs = evalStateT (decodeAddrStateT sbs) 0
+  forall c.
+  (Crypto c) =>
+  BS.ByteString -> (Addr c)
+decodeAddr sbs = evalState (decodeAddrStateT sbs) 0
 {-# INLINE decodeAddr #-}
 
 -- | While decoding an Addr the header (the first byte in the buffer) is
@@ -614,20 +610,20 @@ decodeAddr sbs = evalStateT (decodeAddrStateT sbs) 0
 --                          `Not a Base Address
 -- @@@
 decodeAddrStateT ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   b ->
-  StateT Int m (Addr c)
+  State Int (Addr c)
 decodeAddrStateT = decodeAddrStateAllowLeftoverT False
 {-# INLINE decodeAddrStateT #-}
 
 -- | Just like `decodeAddrStateT`, but does not check whether the input was consumed in full.
 decodeAddrStateAllowLeftoverT ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   -- | Enable lenient decoding, i.e. indicate whether junk can follow an address or a
   -- Ptr. This is necessary for backwards compatibility only.
   Bool ->
   b ->
-  StateT Int m (Addr c)
+  State Int (Addr c)
 decodeAddrStateAllowLeftoverT isLenient buf = do
   guardLength "Header" 1 buf
   let header = Header $ bufUnsafeIndex buf 0
@@ -652,13 +648,13 @@ decodeAddrStateAllowLeftoverT isLenient buf = do
 
 -- | Checks that the current offset is exactly at the end of the buffer.
 ensureBufIsConsumed ::
-  forall m b.
-  (MonadFail m, AddressBuffer b) =>
+  forall b.
+  (AddressBuffer b) =>
   -- | Name for error reporting
   String ->
   -- | Buffer that should have been consumed.
   b ->
-  StateT Int m ()
+  State Int ()
 ensureBufIsConsumed name buf = do
   lastOffset <- get
   let len = bufLength buf
@@ -669,10 +665,10 @@ ensureBufIsConsumed name buf = do
 
 -- | This decoder assumes the whole `ShortByteString` is occupied by the `BootstrapAddress`
 decodeBootstrapAddress ::
-  forall c m b.
-  (MonadFail m, AddressBuffer b) =>
+  forall c b.
+  (AddressBuffer b) =>
   b ->
-  StateT Int m (BootstrapAddress c)
+  State Int (BootstrapAddress c)
 decodeBootstrapAddress buf =
   case decodeFull' byronProtVer $ bufToByteString buf of
     Left e -> fail $ show e
@@ -680,21 +676,21 @@ decodeBootstrapAddress buf =
 {-# INLINE decodeBootstrapAddress #-}
 
 decodePaymentCredential ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   Header ->
   b ->
-  StateT Int m (PaymentCredential c)
+  State Int (PaymentCredential c)
 decodePaymentCredential header buf
   | headerIsPaymentScript header = ScriptHashObj <$> decodeScriptHash buf
   | otherwise = KeyHashObj <$> decodeKeyHash buf
 {-# INLINE decodePaymentCredential #-}
 
 decodeStakeReference ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   Bool ->
   Header ->
   b ->
-  StateT Int m (StakeReference c)
+  State Int (StakeReference c)
 decodeStakeReference isLenientPtrDecoder header buf
   | headerIsBaseAddress header =
       if headerIsStakingScript header
@@ -707,24 +703,24 @@ decodeStakeReference isLenientPtrDecoder header buf
 {-# INLINE decodeStakeReference #-}
 
 decodeKeyHash ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   b ->
-  StateT Int m (KeyHash kr c)
+  State Int (KeyHash kr c)
 decodeKeyHash buf = KeyHash <$> decodeHash buf
 {-# INLINE decodeKeyHash #-}
 
 decodeScriptHash ::
-  (Crypto c, MonadFail m, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   b ->
-  StateT Int m (ScriptHash c)
+  State Int (ScriptHash c)
 decodeScriptHash buf = ScriptHash <$> decodeHash buf
 {-# INLINE decodeScriptHash #-}
 
 decodeHash ::
-  forall a h m b.
-  (Hash.HashAlgorithm h, MonadFail m, AddressBuffer b) =>
+  forall a h b.
+  (Hash.HashAlgorithm h, AddressBuffer b) =>
   b ->
-  StateT Int m (Hash.Hash h a)
+  State Int (Hash.Hash h a)
 decodeHash buf = do
   offset <- get
   case bufGetHash buf offset of
@@ -743,9 +739,9 @@ decodeHash buf = do
 {-# INLINE decodeHash #-}
 
 decodePtr ::
-  (MonadFail m, AddressBuffer b) =>
+  (AddressBuffer b) =>
   b ->
-  StateT Int m Ptr
+  State Int Ptr
 decodePtr buf =
   Ptr
     <$> (SlotNo . (fromIntegral :: Word32 -> Word64) <$> decodeVariableLengthWord32 "SlotNo" buf)
@@ -754,9 +750,9 @@ decodePtr buf =
 {-# INLINE decodePtr #-}
 
 decodePtrLenient ::
-  (MonadFail m, AddressBuffer b) =>
+  (AddressBuffer b) =>
   b ->
-  StateT Int m Ptr
+  State Int Ptr
 decodePtrLenient buf =
   Ptr
     <$> (SlotNo <$> decodeVariableLengthWord64 "SlotNo" buf)
@@ -765,12 +761,12 @@ decodePtrLenient buf =
 {-# INLINE decodePtrLenient #-}
 
 guardLength ::
-  (MonadFail m, AddressBuffer b) =>
+  (AddressBuffer b) =>
   -- | Name for what is being decoded for the error message
   String ->
   Int ->
   b ->
-  StateT Int m ()
+  State Int ()
 guardLength name expectedLength buf = do
   offset <- get
   when (offset > bufLength buf - expectedLength) $
@@ -782,16 +778,16 @@ guardLength name expectedLength buf = do
 -- more bits following. Continuation style allows us to avoid
 -- rucursion. Removing loops is good for performance.
 decode7BitVarLength ::
-  (Num a, Bits a, AddressBuffer b, MonadFail m) =>
+  (Num a, Bits a, AddressBuffer b) =>
   -- | Name of what is being decoded for error reporting
   String ->
   -- | Buffer that contains encoded number
   b ->
   -- | Continuation that will be invoked if MSB is set
-  (a -> StateT Int m a) ->
+  (a -> State Int a) ->
   -- | Accumulator
   a ->
-  StateT Int m a
+  State Int a
 decode7BitVarLength name buf cont !acc = do
   guardLength name 1 buf
   offset <- state (\off -> (off, off + 1))
@@ -801,20 +797,20 @@ decode7BitVarLength name buf cont !acc = do
     else pure (acc `shiftL` 7 .|. fromIntegral b8)
 {-# INLINE decode7BitVarLength #-}
 
-failDecoding :: MonadFail m => String -> String -> m a
-failDecoding name msg = fail $ "Decoding " ++ name ++ ": " ++ msg
+failDecoding :: String -> String -> m a
+failDecoding name msg = error $ "Decoding " ++ name ++ ": " ++ msg
 {-# NOINLINE failDecoding #-}
 
 decodeVariableLengthWord16 ::
-  forall m b.
-  (MonadFail m, AddressBuffer b) =>
+  forall b.
+  (AddressBuffer b) =>
   String ->
   b ->
-  StateT Int m Word16
+  State Int Word16
 decodeVariableLengthWord16 name buf = do
   off0 <- get
   let d7 = decode7BitVarLength name buf
-      d7last :: Word16 -> StateT Int m Word16
+      d7last :: Word16 -> State Int Word16
       d7last acc = do
         res <- decode7BitVarLength name buf (\_ -> failDecoding name "too many bytes.") acc
         -- Only while decoding the last 7bits we check if there was too many
@@ -826,16 +822,16 @@ decodeVariableLengthWord16 name buf = do
 {-# INLINE decodeVariableLengthWord16 #-}
 
 decodeVariableLengthWord32 ::
-  forall m b.
-  (MonadFail m, AddressBuffer b) =>
+  forall b.
+  (AddressBuffer b) =>
   String ->
   b ->
-  StateT Int m Word32
+  State Int Word32
 decodeVariableLengthWord32 name buf = do
   off0 <- get
   let d7 = decode7BitVarLength name buf
       {-# INLINE d7 #-}
-      d7last :: Word32 -> StateT Int m Word32
+      d7last :: Word32 -> State Int Word32
       d7last acc = do
         res <- decode7BitVarLength name buf (\_ -> failDecoding name "too many bytes.") acc
         -- Only while decoding the last 7bits we check if there was too many
@@ -850,11 +846,11 @@ decodeVariableLengthWord32 name buf = do
 -- | This decoder is here only with the purpose of preserving old buggy behavior. Should
 -- not be used for anything else.
 decodeVariableLengthWord64 ::
-  forall m b.
-  (MonadFail m, AddressBuffer b) =>
+  forall b.
+  (AddressBuffer b) =>
   String ->
   b ->
-  StateT Int m Word64
+  State Int Word64
 decodeVariableLengthWord64 name buf = fix (decode7BitVarLength name buf) 0
 {-# INLINE decodeVariableLengthWord64 #-}
 
@@ -863,17 +859,15 @@ decodeVariableLengthWord64 name buf = fix (decode7BitVarLength name buf) 0
 ------------------------------------------------------------------------------------------
 
 decodeRewardAcnt ::
-  forall c b m.
-  (Crypto c, AddressBuffer b, MonadFail m) =>
-  b ->
-  m (RewardAcnt c)
-decodeRewardAcnt buf = evalStateT (decodeRewardAccountT buf) 0
+  forall c b.
+  (Crypto c, AddressBuffer b) => b -> (RewardAcnt c)
+decodeRewardAcnt buf = evalState (decodeRewardAccountT buf) 0
 {-# INLINE decodeRewardAcnt #-}
 
 fromCborRewardAcnt :: forall c s. Crypto c => Decoder s (RewardAcnt c)
 fromCborRewardAcnt = do
   sbs :: ShortByteString <- decCBOR
-  decodeRewardAcnt @c sbs
+  return $! decodeRewardAcnt @c sbs
 {-# INLINE fromCborRewardAcnt #-}
 
 headerIsRewardAccount :: Header -> Bool
@@ -901,9 +895,9 @@ headerRewardAccountIsScript = (`testBit` 4)
 --                            `Account Credential is a Script
 -- @@@
 decodeRewardAccountT ::
-  (MonadFail m, Crypto c, AddressBuffer b) =>
+  (Crypto c, AddressBuffer b) =>
   b ->
-  StateT Int m (RewardAcnt c)
+  State Int (RewardAcnt c)
 decodeRewardAccountT buf = do
   guardLength "Header" 1 buf
   modify' (+ 1)
@@ -918,6 +912,9 @@ decodeRewardAccountT buf = do
   ensureBufIsConsumed "RewardsAcnt" buf
   pure $! RewardAcnt (headerNetworkId header) account
 {-# INLINE decodeRewardAccountT #-}
+
+fail :: String -> m a
+fail = error
 
 instance Crypto c => EncCBOR (CompactAddr c) where
   encCBOR (UnsafeCompactAddr bytes) = encCBOR bytes
