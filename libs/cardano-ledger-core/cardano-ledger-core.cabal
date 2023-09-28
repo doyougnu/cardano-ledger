@@ -95,7 +95,6 @@ library
         containers,
         data-default-class,
         deepseq,
-        FailT,
         groups,
         heapwords,
         iproute,
